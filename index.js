@@ -21,7 +21,6 @@ const port = process.env.PORT || 8000;
 server.listen(port, async () => {
   try {
     await connect();
-    console.log("Connected to DB");
     console.log(`Server running on port ${port}`);
   } catch (err) {
     console.error(err);
