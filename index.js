@@ -17,7 +17,6 @@ app.get("/", (req, res) => {
 require("dotenv").config();
 const port = 8000;
 
-
 server.listen(port, async () => {
   try {
     await connect();
