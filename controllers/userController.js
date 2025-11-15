@@ -538,3 +538,44 @@ exports.completeService = async (req, res) => {
     return res.status(500).json({ message: 'Server error' });
   }
 };
+// controllers/userController.js (add near other service-related exports)
+exports.addFeedback = async (req, res) => {
+  try {
+    const { serviceId } = req.params;
+    const { rating, comment, byUserId } = req.body;
+
+    if (!serviceId || !rating) return res.status(400).json({ message: 'serviceId and rating required' });
+    if (!isValidObjectId(serviceId)) return res.status(400).json({ message: 'Invalid serviceId' });
+    if (byUserId && !isValidObjectId(byUserId)) return res.status(400).json({ message: 'Invalid byUserId' });
+
+    const service = await Service.findById(serviceId);
+    if (!service) return res.status(404).json({ message: 'Service not found' });
+
+    // Optionally only allow feedback for Completed services
+    // if (service.status !== 'Completed') return res.status(400).json({ message: 'Can only leave feedback for completed services' });
+
+    const fb = {
+      rating: Number(rating),
+      comment: comment ? String(comment).trim() : '',
+      byUser: byUserId ? byUserId : undefined,
+      createdAt: new Date(),
+    };
+
+    service.feedback = service.feedback || [];
+    service.feedback.push(fb);
+
+    await service.save();
+
+    // populate the new feedback's byUser if you want to return user info
+    await service.populate({
+      path: 'feedback.byUser',
+      select: 'name email phone',
+      options: { lean: true },
+    });
+
+    return res.status(200).json({ message: 'Feedback added', feedback: service.feedback });
+  } catch (err) {
+    console.error('addFeedback error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+};

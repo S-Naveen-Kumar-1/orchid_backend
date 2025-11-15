@@ -28,4 +28,6 @@ router.put('/users/:id', userCtrl.updateUser);
 router.post('/sprayer/accept-service', userCtrl.acceptService);
 router.post('/sprayer/complete-service', userCtrl.completeService);
 
+router.post('/service/:serviceId/feedback', userCtrl.addFeedback);
+
 module.exports = router;

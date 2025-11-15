@@ -1,6 +1,16 @@
 // models/Service.js
 const mongoose = require('mongoose');
 
+const FeedbackSchema = new mongoose.Schema(
+  {
+    rating: { type: Number, min: 1, max: 5, required: true },
+    comment: { type: String },
+    byUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // who left feedback
+    createdAt: { type: Date, default: Date.now },
+  },
+  { _id: true }
+);
+
 const ServiceSchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -19,9 +29,10 @@ const ServiceSchema = new mongoose.Schema(
     },
     notes: { type: String },
     createdAt: { type: Date, default: Date.now },
-
-    // NEW: timestamp when service was completed
     completedAt: { type: Date, default: null },
+
+    // NEW: feedback array
+    feedback: { type: [FeedbackSchema], default: [] },
   },
   { timestamps: true }
 );
