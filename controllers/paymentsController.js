@@ -155,3 +155,8 @@ const verifyPayment = async (req, res) => {
     return res.status(500).json({ ok: false, message: "Server error verifying payment", error: error?.message });
   }
 };
+module.exports = {
+  createOrder,
+  verifyPayment,
+  razorpayWebhook
+};
