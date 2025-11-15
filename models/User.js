@@ -1,69 +1,75 @@
-import mongoose from "mongoose";
+// models/User.js
+const mongoose = require('mongoose');
 
-// Plan schema for purchased plans
 const planSchema = new mongoose.Schema(
   {
-    planId: { type: String }, // "1", "2", etc.
+    planId: { type: String },
     title: { type: String, required: true },
     price: { type: String, required: true },
-    duration: { type: String, required: true }, // e.g., "1 Month"
+    duration: { type: String, required: true },
     startDate: { type: Date, default: Date.now },
     endDate: { type: Date },
-    status: { type: String, enum: ["Active", "Expired"], default: "Active" },
+    status: { type: String, enum: ['Active', 'Expired'], default: 'Active' },
   },
   { _id: false }
 );
 
-// Service schema for farmer booked services
 const serviceSchema = new mongoose.Schema(
   {
-    field: { type: String, required: true },
-    orchid: { type: String, required: true },
-    spraysCount: { type: Number, required: true },
-    scheduleDate: { type: Date, required: false },
-    assignedSprayer: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-    address: { type: String, required: true },
-    pincode: { type: String, required: true },
-    status: {
-      type: String,
-      enum: ["Pending", "In Progress", "Completed", "Cancelled"],
-      default: "Pending",
-    },
-    createdAt: { type: Date, default: Date.now },
-  },
-  { _id: true } // important: ensures each booked service has its own _id
-);
-
-// Assigned services schema for sprayers
-const assignedServiceSchema = new mongoose.Schema(
-  {
-    farmerId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-    serviceId: { type: mongoose.Schema.Types.ObjectId, required: true },
-    scheduleDate: { type: Date, required: true },
-    status: { type: String, enum: ["In Progress", "Completed"], default: "In Progress" },
+    serviceTitle: { type: String },
+    field: { type: String },
+    orchid: { type: String },
+    spraysCount: { type: Number, default: 1 },
+    scheduleDate: { type: Date },
+    assignedSprayer: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    address: { type: String },
+    pincode: { type: String },
+    status: { type: String, enum: ['Pending', 'In Progress', 'Completed', 'Cancelled'], default: 'Pending' },
     createdAt: { type: Date, default: Date.now },
   },
   { _id: true }
 );
 
-// User schema
+const assignedServiceSchema = new mongoose.Schema({
+  farmerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  serviceId: { type: mongoose.Schema.Types.ObjectId, required: true },
+  scheduleDate: { type: Date, required: true },
+  status: { type: String, enum: ['In Progress', 'Completed'], default: 'In Progress' },
+  createdAt: { type: Date, default: Date.now },
+});
+
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
     phone: { type: String, required: true },
     password: { type: String, required: true },
-    type: {
-      type: String,
-      enum: ["farmer", "sprayer", "admin"],
-      required: true,
-    },
+    type: { type: String, enum: ['farmer', 'sprayer', 'admin'], required: true },
     planActive: { type: Boolean, default: false },
-    purchasedPlans: [planSchema],          // Plans purchased by farmer
-    bookedServices: [serviceSchema],       // Services booked by farmer
-    assignedServices: [assignedServiceSchema], // Services assigned to sprayer
+    purchasedPlans: [planSchema],
+    bookedServices: [serviceSchema],
+    assignedServices: [assignedServiceSchema],
+    pendingPayments: [
+      {
+        orderId: String,
+        planId: String,
+        amount: Number,
+        currency: String,
+        createdAt: Date,
+      },
+    ],
+    payments: [
+      {
+        razorpayOrderId: String,
+        razorpayPaymentId: String,
+        amount: Number,
+        currency: String,
+        createdAt: Date,
+        notes: Object,
+      },
+    ],
   },
   { timestamps: true }
 );
 
-export default mongoose.model("User", userSchema);
+module.exports = mongoose.model('User', userSchema);
