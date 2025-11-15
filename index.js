@@ -20,7 +20,7 @@ const { razorpayWebhook } = require('./controllers/paymentsController');
 const app = express();
 app.use(cors());
 
-// avoid favicon interfering with param routes
+// avoid favicon interfering
 app.get('/favicon.ico', (req, res) => res.sendStatus(204));
 
 // register webhook raw handler BEFORE express.json for that path

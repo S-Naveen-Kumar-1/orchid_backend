@@ -1,37 +1,43 @@
 // controllers/paymentsController.js
-const Razorpay = require("razorpay");
-const crypto = require("crypto");
-const mongoose = require("mongoose");
-require("dotenv").config();
+const Razorpay = require('razorpay');
+const crypto = require('crypto');
+const mongoose = require('mongoose');
+require('dotenv').config();
 
-const User = require("../models/User"); // CommonJS import
+const User = require('../models/User');
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
-const isValidObjectId = (id) => typeof id === "string" && mongoose.Types.ObjectId.isValid(id);
+const isValidObjectId = (id) => typeof id === 'string' && mongoose.Types.ObjectId.isValid(id);
 
-/**
- * Create Razorpay order.
- * Request body: { userId, planId, title, price, duration }
- * Adds planDuration to order notes so verifyPayment can create the correct duration.
- */
+// helper: determine sprays per month by planKey/title
+const spraysPerMonthForPlan = (planIdOrTitle = '') => {
+  const key = String(planIdOrTitle).toLowerCase();
+  if (key.includes('starter') || key.includes('starter_1')) return 2;
+  if (key.includes('pro') || key.includes('pro_1')) return 3;
+  if (key.includes('premium') || key.includes('premium_1')) return 4;
+  const m = String(planIdOrTitle).match(/(\d+)\s*Spray/i);
+  if (m) return parseInt(m[1], 10);
+  return 1;
+};
+
 exports.createOrder = async (req, res) => {
   try {
     const { userId, planId, title, price, duration } = req.body;
     if (!userId || !planId || !title || price == null) {
-      return res.status(400).json({ message: "userId, planId, title and price are required" });
+      return res.status(400).json({ message: 'userId, planId, title and price are required' });
     }
-    if (!isValidObjectId(userId)) return res.status(400).json({ message: "Invalid userId" });
+    if (!isValidObjectId(userId)) return res.status(400).json({ message: 'Invalid userId' });
 
     const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
-    // Block if any active plan exists (server-side authoritative guard)
+    // Block if any active plan exists
     const anyActive = (user.purchasedPlans || []).some((p) => {
-      if (p.status === "Active") {
+      if (p.status === 'Active') {
         if (p.endDate) return new Date(p.endDate) > new Date();
         return true;
       }
@@ -39,22 +45,22 @@ exports.createOrder = async (req, res) => {
       return false;
     });
     if (anyActive) {
-      return res.status(400).json({ message: "User already has an active plan. Cannot create order." });
+      return res.status(400).json({ message: 'User already has an active plan. Cannot create order.' });
     }
 
     const amountPaise = Math.round(Number(price) * 100);
-    if (isNaN(amountPaise) || amountPaise <= 0) return res.status(400).json({ message: "Invalid price" });
+    if (isNaN(amountPaise) || amountPaise <= 0) return res.status(400).json({ message: 'Invalid price' });
 
     const notes = {
       userId: String(userId),
       planId: String(planId),
       planTitle: title,
-      planDuration: String(duration || ""),
+      planDuration: String(duration || ''),
     };
 
     const options = {
       amount: amountPaise,
-      currency: "INR",
+      currency: 'INR',
       receipt: `rcpt_${Date.now()}`,
       payment_capture: 1,
       notes,
@@ -70,65 +76,59 @@ exports.createOrder = async (req, res) => {
             orderId: order.id,
             planId: String(planId),
             amount: amountPaise,
-            currency: "INR",
+            currency: 'INR',
             createdAt: new Date(),
           },
         },
       });
     } catch (err) {
-      console.warn("Warning: failed to push pending payment to user:", err && err.message ? err.message : err);
+      console.warn('Warning: failed to push pending payment to user:', err && err.message ? err.message : err);
     }
 
-    return res.json({ order });
+    // return order + public key id so frontend can open razorpay with server key
+    return res.json({ order, key_id: process.env.RAZORPAY_KEY_ID || null });
   } catch (error) {
-    console.error("createOrder error:", error && error.stack ? error.stack : error);
-    return res.status(500).json({ message: "Server error creating order", error: error?.message || String(error) });
+    console.error('createOrder error:', error && error.stack ? error.stack : error);
+    return res.status(500).json({ message: 'Server error creating order', error: error?.message || String(error) });
   }
 };
 
-/**
- * Verify payment and activate plan.
- * Request body: { razorpay_order_id, razorpay_payment_id, razorpay_signature }
- * If verification success -> activates plan and returns { ok: true, plan: newPlan }
- */
 exports.verifyPayment = async (req, res) => {
   try {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
-      return res.status(400).json({ message: "Missing payment fields" });
+      return res.status(400).json({ message: 'Missing payment fields' });
     }
 
-    // verify signature
     const generated_signature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
       .update(`${razorpay_order_id}|${razorpay_payment_id}`)
-      .digest("hex");
+      .digest('hex');
 
     if (generated_signature !== razorpay_signature) {
-      console.warn("Invalid signature for payment", { razorpay_order_id, razorpay_payment_id });
-      return res.status(400).json({ ok: false, message: "Invalid signature" });
+      console.warn('Invalid signature for payment', { razorpay_order_id, razorpay_payment_id });
+      return res.status(400).json({ ok: false, message: 'Invalid signature' });
     }
 
-    // fetch order to read notes
     const order = await razorpay.orders.fetch(razorpay_order_id);
     const notes = order && order.notes ? order.notes : {};
     const userId = notes.userId;
     const planId = notes.planId;
-    const planTitle = notes.planTitle || "Purchased Plan";
-    const planDurationNote = notes.planDuration || "";
+    const planTitle = notes.planTitle || 'Purchased Plan';
+    const planDurationNote = notes.planDuration || '';
     const amountPaise = order.amount;
 
     if (!userId || !isValidObjectId(userId)) {
-      console.warn("verifyPayment: missing/invalid userId in order notes", razorpay_order_id);
-      return res.status(400).json({ ok: false, message: "Invalid order notes (no user mapping)" });
+      console.warn('verifyPayment: missing/invalid userId in order notes', razorpay_order_id);
+      return res.status(400).json({ ok: false, message: 'Invalid order notes (no user mapping)' });
     }
 
     const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ ok: false, message: "User not found" });
+    if (!user) return res.status(404).json({ ok: false, message: 'User not found' });
 
-    // Double-check: block if there is already an active plan (shouldn't happen normally)
+    // Double-check active plan
     const anyActive = (user.purchasedPlans || []).some((p) => {
-      if (p.status === "Active") {
+      if (p.status === 'Active') {
         if (p.endDate) return new Date(p.endDate) > new Date();
         return true;
       }
@@ -136,23 +136,24 @@ exports.verifyPayment = async (req, res) => {
       return false;
     });
     if (anyActive) {
-      // cleanup pending payment
       user.pendingPayments = (user.pendingPayments || []).filter((pp) => pp.orderId !== razorpay_order_id);
       await user.save();
-      return res.status(400).json({ ok: false, message: "User already has an active plan. Activation denied." });
+      return res.status(400).json({ ok: false, message: 'User already has an active plan. Activation denied.' });
     }
 
-    // compute months from notes if present
+    // parse months
     let months = 1;
     if (planDurationNote) {
-      // accept formats like "1 Month", "3 Months" or numeric strings
-      const parsed = parseInt(String(planDurationNote).replace(/[^\d]/g, ""), 10);
+      const parsed = parseInt(String(planDurationNote).replace(/[^\d]/g, ''), 10);
       if (!isNaN(parsed) && parsed > 0) months = parsed;
     }
 
     const startDate = new Date();
     const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + months);
+
+    const perMonth = spraysPerMonthForPlan(planId || planTitle || planDurationNote);
+    const spraysAllowed = perMonth * months;
 
     const newPlan = {
       planId: planId ? String(planId) : `manual_${Date.now()}`,
@@ -161,7 +162,9 @@ exports.verifyPayment = async (req, res) => {
       duration: `${months} Month`,
       startDate,
       endDate,
-      status: "Active",
+      status: 'Active',
+      spraysAllowed,
+      spraysUsed: 0,
     };
 
     user.purchasedPlans = user.purchasedPlans || [];
@@ -177,51 +180,47 @@ exports.verifyPayment = async (req, res) => {
       razorpayOrderId: razorpay_order_id,
       razorpayPaymentId: razorpay_payment_id,
       amount: amountPaise,
-      currency: "INR",
+      currency: 'INR',
       createdAt: new Date(),
       notes,
     });
 
     await user.save();
 
-    return res.json({ ok: true, message: "Payment verified and plan activated", plan: newPlan });
+    return res.json({ ok: true, message: 'Payment verified and plan activated', plan: newPlan });
   } catch (error) {
-    console.error("verifyPayment error:", error && error.stack ? error.stack : error);
-    return res.status(500).json({ ok: false, message: "Server error verifying payment", error: error?.message || String(error) });
+    console.error('verifyPayment error:', error && error.stack ? error.stack : error);
+    return res.status(500).json({ ok: false, message: 'Server error verifying payment', error: error?.message || String(error) });
   }
 };
 
-/**
- * Webhook: keep raw body parsing in server.js and register route there:
- * app.post('/api/payments/webhook', bodyParser.raw({ type: 'application/json' }), razorpayWebhook)
- */
 exports.razorpayWebhook = async (req, res) => {
   try {
     const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
-    const signature = req.headers["x-razorpay-signature"];
+    const signature = req.headers['x-razorpay-signature'];
     if (!signature || !webhookSecret) {
-      console.warn("Webhook missing signature or webhook secret not configured");
-      return res.status(400).send("Bad Request");
+      console.warn('Webhook missing signature or webhook secret not configured');
+      return res.status(400).send('Bad Request');
     }
 
     const rawBody = req.body;
     const computed = crypto
-      .createHmac("sha256", webhookSecret)
+      .createHmac('sha256', webhookSecret)
       .update(Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(JSON.stringify(rawBody)))
-      .digest("hex");
+      .digest('hex');
 
     if (computed !== signature) {
-      console.warn("Invalid webhook signature");
-      return res.status(400).send("Invalid signature");
+      console.warn('Invalid webhook signature');
+      return res.status(400).send('Invalid signature');
     }
 
-    const payload = Buffer.isBuffer(rawBody) ? JSON.parse(rawBody.toString("utf8")) : rawBody;
+    const payload = Buffer.isBuffer(rawBody) ? JSON.parse(rawBody.toString('utf8')) : rawBody;
     const event = payload.event;
 
-    if (event === "payment.captured") {
+    if (event === 'payment.captured') {
       const payment = payload.payload?.payment?.entity;
       if (payment) {
-        console.log("WEBHOOK: payment.captured", payment.id, "amount:", payment.amount);
+        console.log('WEBHOOK: payment.captured', payment.id, 'amount:', payment.amount);
         const orderId = payment.order_id;
         try {
           const order = await razorpay.orders.fetch(orderId);
@@ -242,17 +241,17 @@ exports.razorpayWebhook = async (req, res) => {
               await user.save();
             }
           } else {
-            console.warn("Webhook: order notes missing/invalid userId for order:", orderId);
+            console.warn('Webhook: order notes missing/invalid userId for order:', orderId);
           }
         } catch (e) {
-          console.warn("Webhook order fetch error:", e && e.message ? e.message : e);
+          console.warn('Webhook order fetch error:', e && e.message ? e.message : e);
         }
       }
     }
 
     return res.json({ ok: true });
   } catch (error) {
-    console.error("razorpayWebhook error:", error && error.stack ? error.stack : error);
-    return res.status(500).send("Server error");
+    console.error('razorpayWebhook error:', error && error.stack ? error.stack : error);
+    return res.status(500).send('Server error');
   }
 };

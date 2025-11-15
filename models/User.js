@@ -10,28 +10,10 @@ const planSchema = new mongoose.Schema(
     startDate: { type: Date, default: Date.now },
     endDate: { type: Date },
     status: { type: String, enum: ['Active', 'Expired'], default: 'Active' },
+    spraysAllowed: { type: Number, default: 0 }, // new
+    spraysUsed: { type: Number, default: 0 }, // new
   },
   { _id: false }
-);
-
-const serviceSchema = new mongoose.Schema(
-  {
-    serviceTitle: { type: String, required: true },
-    field: { type: String, required: true },
-    orchid: { type: String, required: true },
-    spraysCount: { type: Number, required: true },
-    scheduleDate: { type: Date },
-    assignedSprayer: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    address: { type: String, required: true },
-    pincode: { type: String, required: true },
-    status: {
-      type: String,
-      enum: ['Pending', 'In Progress', 'Completed', 'Cancelled'],
-      default: 'Pending',
-    },
-    createdAt: { type: Date, default: Date.now },
-  },
-  { _id: true }
 );
 
 const assignedServiceSchema = new mongoose.Schema(
@@ -54,7 +36,8 @@ const userSchema = new mongoose.Schema(
     type: { type: String, enum: ['farmer', 'sprayer', 'admin'], required: true },
     planActive: { type: Boolean, default: false },
     purchasedPlans: [planSchema],
-    bookedServices: [serviceSchema],
+    // now reference Service documents
+    bookedServices: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Service' }],
     assignedServices: [assignedServiceSchema],
     pendingPayments: { type: Array, default: [] },
     payments: { type: Array, default: [] },
