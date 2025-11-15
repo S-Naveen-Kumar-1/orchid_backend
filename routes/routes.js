@@ -24,5 +24,8 @@ router.get('/sprayer/services', userCtrl.getAllBookedServices);
 router.post('/sprayer/assign-slot', userCtrl.assignServiceSlot);
 
 router.put('/users/:id', userCtrl.updateUser);
+// add these routes (near other sprayer endpoints)
+router.post('/sprayer/accept-service', userCtrl.acceptService);
+router.post('/sprayer/complete-service', userCtrl.completeService);
 
 module.exports = router;

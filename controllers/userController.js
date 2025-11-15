@@ -354,14 +354,37 @@ exports.cancelBooking = async (req, res) => {
 };
 
 // admin / sprayer view
+// controllers/userController.js  (replace getAllBookedServices)
 exports.getAllBookedServices = async (req, res) => {
   try {
-    const services = await Service.find({ status: { $in: ['Pending', 'In Progress'] } })
-      .populate('user', 'name email phone')
-      .populate('assignedSprayer', 'name email phone')
+    // optional status filter: e.g. /sprayer/services?status=Pending
+    const { status } = req.query;
+
+    const filter = {};
+    if (status) {
+      // validate status value
+      const allowed = ['Pending', 'In Progress', 'Completed', 'Cancelled'];
+      if (!allowed.includes(status)) return res.status(400).json({ message: 'Invalid status filter' });
+      filter.status = status;
+    } else {
+      // no status filter: return all services (or you can restrict to specific statuses)
+      // filter.status = { $in: ['Pending', 'In Progress', 'Completed'] }; // alternative
+    }
+
+    const services = await Service.find(filter)
+      .populate('user', 'name email phone') // farmer info
+      .populate('assignedSprayer', 'name email phone') // sprayer info
       .lean();
 
-    return res.status(200).json(services);
+    // Simplify fields for frontend convenience
+    const mapped = services.map(s => ({
+      ...s,
+      userName: s.user ? s.user.name : '',
+      userPhone: s.user ? s.user.phone : '',
+      assignedSprayerId: s.assignedSprayer ? (s.assignedSprayer._id || s.assignedSprayer) : null,
+    }));
+
+    return res.status(200).json(mapped);
   } catch (err) {
     console.error('getAllBookedServices error:', err);
     return res.status(500).json({ message: 'Server error' });
@@ -430,3 +453,88 @@ exports.updateUser = async (req, res) => {
 };
 
 
+/**
+ * acceptService: Sprayer claims a pending service (no schedule given).
+ * Body: { serviceId, sprayerId }
+ * Sets assignedSprayer, status='In Progress', scheduleDate = now
+ */
+exports.acceptService = async (req, res) => {
+  try {
+    const { serviceId, sprayerId } = req.body;
+    if (!serviceId || !sprayerId) return res.status(400).json({ message: 'serviceId and sprayerId are required' });
+    if (!isValidObjectId(serviceId) || !isValidObjectId(sprayerId)) return res.status(400).json({ message: 'Invalid id(s)' });
+
+    const service = await Service.findById(serviceId);
+    if (!service) return res.status(404).json({ message: 'Service not found' });
+    if (service.status !== 'Pending') return res.status(400).json({ message: 'Only pending services can be accepted' });
+
+    // set assigned sprayer and change status
+    service.assignedSprayer = sprayerId;
+    service.status = 'In Progress';
+    service.scheduleDate = new Date(); // immediate acceptance time; sprayer can later reassign schedule via assignServiceSlot
+    await service.save();
+
+    // add assignedServices entry for sprayer
+    const sprayer = await User.findById(sprayerId);
+    if (!sprayer) return res.status(404).json({ message: 'Sprayer not found' });
+
+    sprayer.assignedServices = sprayer.assignedServices || [];
+    sprayer.assignedServices.push({
+      farmerId: service.user,
+      serviceId: service._id,
+      scheduleDate: service.scheduleDate,
+      status: 'In Progress',
+      createdAt: new Date(),
+    });
+    await sprayer.save();
+
+    return res.status(200).json({ message: 'Service accepted', service });
+  } catch (err) {
+    console.error('acceptService error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
+
+/**
+ * completeService: Sprayer marks a service as completed.
+ * Body: { serviceId, sprayerId }
+ * Validates sprayer is assigned then set status = 'Completed' and update sprayer record.
+ */
+exports.completeService = async (req, res) => {
+  try {
+    const { serviceId, sprayerId } = req.body;
+    if (!serviceId || !sprayerId) return res.status(400).json({ message: 'serviceId and sprayerId are required' });
+
+    if (!isValidObjectId(serviceId) || !isValidObjectId(sprayerId)) return res.status(400).json({ message: 'Invalid id(s)' });
+
+    const service = await Service.findById(serviceId);
+    if (!service) return res.status(404).json({ message: 'Service not found' });
+
+    if (!service.assignedSprayer || String(service.assignedSprayer) !== String(sprayerId)) {
+      return res.status(403).json({ message: 'You are not assigned to this service' });
+    }
+
+    service.status = 'Completed';
+    service.completedAt = new Date();
+    await service.save();
+
+    const sprayer = await User.findById(sprayerId);
+    if (sprayer) {
+      sprayer.assignedServices = (sprayer.assignedServices || []).map((as) => {
+        // as may be a subdocument or plain object
+        const sid = as.serviceId ? String(as.serviceId) : String(as._id || as);
+        if (sid === String(service._id)) {
+          // keep other fields but update status
+          return { ... (as.toObject ? as.toObject() : as), status: 'Completed' };
+        }
+        return as;
+      });
+      await sprayer.save();
+    }
+
+    return res.status(200).json({ message: 'Service completed', service });
+  } catch (err) {
+    console.error('completeService error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
