@@ -1,30 +1,16 @@
-// routes/routes.js
-const express = require('express');
-const {
-  registerUser, loginUser, getAllUsers, purchasePlan, getUserById,
-  bookService, getAllBookedServices, assignServiceSlot, updateUser, getUserPurchases,
-} = require('../controllers/userController');
-
+// routes/users.js
+const express = require("express");
 const router = express.Router();
+const userCtrl = require("../controllers/userController");
 
-// Auth
-router.post('/register', registerUser);
-router.post('/login', loginUser);
-
-// Users
-router.get('/users', getAllUsers);
-router.get('/users/:id', getUserById);
-router.put('/users/:id', updateUser);
-
-// purchases
-router.get('/users/:id/purchases', getUserPurchases);
-router.post('/purchase-plan/:userId', purchasePlan);
-
-// booking
-router.post('/book-service/:userId', bookService);
-
-// sprayer/admin
-router.get('/sprayer/services', getAllBookedServices);
-router.post('/sprayer/assign-slot', assignServiceSlot);
+router.post("/register", userCtrl.registerUser);
+router.post("/login", userCtrl.loginUser);
+router.get("/users", userCtrl.getAllUsers);
+router.post("/purchase-plan/:userId", userCtrl.purchasePlan);
+router.get("/users/:id", userCtrl.getUserById);
+router.post("/book-service/:userId", userCtrl.bookService);
+router.get("/sprayer/services", userCtrl.getAllBookedServices);
+router.post("/sprayer/assign-slot", userCtrl.assignServiceSlot);
+router.put("/users/:id", userCtrl.updateUser);
 
 module.exports = router;
